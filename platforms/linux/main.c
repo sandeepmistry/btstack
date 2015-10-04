@@ -35,86 +35,76 @@
  *
  */
 
-/*
- *  hci_transport.h
- *
- *  HCI Transport API -- allows BT Daemon to use different transport protcols
- *
- *  Created by Matthias Ringwald on 4/29/09.
- *
- */
-#ifndef __HCI_TRANSPORT_H
-#define __HCI_TRANSPORT_H
+// *****************************************************************************
+//
+// minimal setup for HCI code
+//
+// *****************************************************************************
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+
+#include "btstack-config.h"
+
 #include <btstack/run_loop.h>
+#include <btstack/hal_led.h>
 
-#if defined __cplusplus
-extern "C" {
+#include "debug.h"
+#include "btstack_memory.h"
+#include "hci.h"
+#include "hci_dump.h"
+#include "stdin_support.h"
+
+int btstack_main(int argc, const char * argv[]);
+
+static void sigint_handler(int param){
+
+#ifndef _WIN32
+    // reset anyway
+    btstack_stdin_reset();
 #endif
 
-/* API_START */
-
-/* HCI packet types */
-typedef struct {
-    int    (*open)(void *transport_config);
-    int    (*close)(void *transport_config);
-    int    (*send_packet)(uint8_t packet_type, uint8_t *packet, int size);
-    void   (*register_packet_handler)(void (*handler)(uint8_t packet_type, uint8_t *packet, uint16_t size));
-    const char * (*get_transport_name)(void);
-    // custom extension for UART transport implementations
-    int    (*set_baudrate)(uint32_t baudrate);
-    // support async transport layers, e.g. IRQ driven without buffers
-    int    (*can_send_packet_now)(uint8_t packet_type);
-} hci_transport_t;
-
-typedef struct {
-    const char *device_name;
-    uint32_t   baudrate_init; // initial baud rate
-    uint32_t   baudrate_main; // = 0: same as initial baudrate
-    int   flowcontrol; //
-} hci_uart_config_t;
-
-
-// inline various hci_transport_X.h files
-
-/*
- * @brief
- */
-extern hci_transport_t * hci_transport_h4_instance(void);
-
-/*
- * @brief
- */
-extern hci_transport_t * hci_transport_h4_dma_instance(void);
-
-/*
- * @brief
- */
-extern hci_transport_t * hci_transport_h4_iphone_instance(void);
-
-/*
- * @brief
- */
-extern hci_transport_t * hci_transport_h5_instance(void);
-
-/*
- * @brief
- */
-extern hci_transport_t * hci_transport_usb_instance(void);
-
-/*
- * @brief
- */
-extern hci_transport_t * hci_transport_linux_kernel_instance(void);
-
-/* API_END */
-
-// support for "enforece wake device" in h4 - used by iOS power management
-extern void hci_transport_h4_iphone_set_enforce_wake_device(char *path);
-
-#if defined __cplusplus
+    log_info(" <= SIGINT received, shutting down..\n");
+    hci_power_control(HCI_POWER_OFF);
+    hci_close();
+    log_info("Good bye, see you.\n");
+    exit(0);
 }
-#endif
 
-#endif // __HCI_TRANSPORT_H
+static int led_state = 0;
+void hal_led_toggle(void){
+    led_state = 1 - led_state;
+    printf("LED State %u\n", led_state);
+}
+
+int main(int argc, const char * argv[]){
+
+    /// GET STARTED with BTstack ///
+    btstack_memory_init();
+    run_loop_init(RUN_LOOP_POSIX);
+
+    // use logger: format HCI_DUMP_PACKETLOGGER, HCI_DUMP_BLUEZ or HCI_DUMP_STDOUT
+    hci_dump_open("/tmp/hci_dump.pklg", HCI_DUMP_PACKETLOGGER);
+
+    // init HCI
+    hci_transport_t    * transport = hci_transport_linux_kernel_instance();
+    hci_uart_config_t * config = NULL;
+    bt_control_t       * control   = NULL;
+    remote_device_db_t * remote_db = (remote_device_db_t *) &remote_device_db_fs;
+
+    hci_init(transport, config, control, remote_db);
+
+    // handle CTRL-c
+    signal(SIGINT, sigint_handler);
+
+    // setup app
+    btstack_main(argc, argv);
+
+    // go
+    run_loop_execute();
+
+    return 0;
+}
