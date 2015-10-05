@@ -83,7 +83,7 @@ static int linux_kernel_close(void *transport_config) {
 }
 
 static int linux_kernel_send_packet(uint8_t packet_type, uint8_t * packet, int size){
-    uint8_t packet_buffer[256 + 1];
+    uint8_t packet_buffer[HCI_ACL_PAYLOAD_SIZE + 1];
 
     packet_buffer[0] = packet_type;
     memcpy(&packet_buffer[1], packet, size);
@@ -96,7 +96,7 @@ static int linux_kernel_send_packet(uint8_t packet_type, uint8_t * packet, int s
 }
 
 static int linux_kernel_sock_process(struct data_source *ds) {
-    uint8_t packet_buffer[256];
+    uint8_t packet_buffer[HCI_ACL_PAYLOAD_SIZE];
     int size;
 
     size = read(sock, packet_buffer, sizeof(packet_buffer));
